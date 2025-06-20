@@ -31,6 +31,7 @@ pub async fn print_logs(
     json: bool,
     lines: Option<usize>,
     full: bool,
+    timestamps: bool,
 ) -> Result<()> {
     let lines = determine_log_line_amount(full, &lines);
     let selection = selection_from_params(all, group.clone(), task_ids.clone());
@@ -52,7 +53,7 @@ pub async fn print_logs(
 
     // Return the server response in json representation.
     if json {
-        print_log_json(task_logs, &settings, lines);
+        print_log_json(task_logs, &settings, lines, timestamps);
         return Ok(());
     }
 
@@ -76,7 +77,7 @@ pub async fn print_logs(
     // Iterate over each task and print the respective log.
     let mut task_iter = task_logs.iter().peekable();
     while let Some((_, task_log)) = task_iter.next() {
-        print_log(task_log, style, &settings, lines);
+        print_log(task_log, style, &settings, lines, timestamps);
 
         // Add a newline if there is another task that's going to be printed.
         if let Some((_, task_log)) = task_iter.peek() {
@@ -124,6 +125,7 @@ fn print_log(
     style: &OutputStyle,
     settings: &Settings,
     lines: Option<usize>,
+    timestamps: bool,
 ) {
     let task = &message.task;
     // We only show logs of finished or running tasks.
@@ -137,9 +139,9 @@ fn print_log(
     print_task_info(task, style);
 
     if settings.client.read_local_logs {
-        print_local_log(message.task.id, style, settings, lines);
+        print_local_log(message.task.id, style, settings, lines, timestamps);
     } else if message.output.is_some() {
-        print_remote_log(message, style, lines);
+        print_remote_log(message, style, lines, timestamps);
     } else {
         println!("Logs requested from pueue daemon, but none received. Please report this bug.");
     }

@@ -425,6 +425,10 @@ https://github.com/Nukesor/pueue/issues/350#issue-1359083118"
         /// Show the whole output.
         #[arg(short, long)]
         full: bool,
+
+        /// Add timestamps to each line of the log output.
+        #[arg(short, long)]
+        timestamps: bool,
     },
 
     /// Follow the output of a currently running task.
@@ -440,6 +444,10 @@ https://github.com/Nukesor/pueue/issues/350#issue-1359083118"
         /// Only print the last X lines of the output before following
         #[arg(short, long)]
         lines: Option<usize>,
+
+        /// Add timestamps to each line of the log output.
+        #[arg(short, long)]
+        timestamps: bool,
     },
 
     /// Wait until tasks are finished.

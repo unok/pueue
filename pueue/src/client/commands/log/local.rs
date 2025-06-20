@@ -1,8 +1,9 @@
 use std::{
     fs::File,
-    io::{self, Stdout},
+    io::{self, BufRead, BufReader, Stdout, Write},
 };
 
+use chrono::Local;
 use crossterm::style::{Attribute, Color};
 use pueue_lib::{
     log::{get_log_file_handle, seek_to_last_lines},
@@ -18,6 +19,7 @@ pub fn print_local_log(
     style: &OutputStyle,
     settings: &Settings,
     lines: Option<usize>,
+    timestamps: bool,
 ) {
     let mut file = match get_log_file_handle(task_id, &settings.shared.pueue_directory()) {
         Ok(file) => file,
@@ -35,11 +37,18 @@ pub fn print_local_log(
         &mut file,
         &lines,
         style.style_text("output:", Some(Color::Green), Some(Attribute::Bold)),
+        timestamps,
     );
 }
 
 /// Print a local log file of a task.
-fn print_local_file(stdout: &mut Stdout, file: &mut File, lines: &Option<usize>, header: String) {
+fn print_local_file(
+    stdout: &mut Stdout,
+    file: &mut File,
+    lines: &Option<usize>,
+    header: String,
+    timestamps: bool,
+) {
     if let Ok(metadata) = file.metadata() {
         if metadata.len() != 0 {
             // Indicates whether the full log output is shown or just the last part of it.
@@ -66,10 +75,32 @@ fn print_local_file(stdout: &mut Stdout, file: &mut File, lines: &Option<usize>,
             // Print a newline between the task information and the first output.
             eprintln!("\n{header}{line_info}");
 
-            // Print everything
-            if let Err(err) = io::copy(file, stdout) {
+            // Print everything with optional timestamps
+            if timestamps {
+                print_with_timestamps(file, stdout);
+            } else if let Err(err) = io::copy(file, stdout) {
                 eprintln!("Failed reading local log file: {err}");
-            };
+            }
+        }
+    }
+}
+
+/// Print log file content with timestamps for each line.
+fn print_with_timestamps(file: &mut File, stdout: &mut Stdout) {
+    let reader = BufReader::new(file);
+    for line_result in reader.lines() {
+        match line_result {
+            Ok(line) => {
+                let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                if let Err(err) = writeln!(stdout, "[{}] {}", timestamp, line) {
+                    eprintln!("Failed writing to stdout: {err}");
+                    break;
+                }
+            }
+            Err(err) => {
+                eprintln!("Failed reading line from log file: {err}");
+                break;
+            }
         }
     }
 }
