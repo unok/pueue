@@ -110,10 +110,12 @@ fn get_remote_log(output_bytes: Option<Vec<u8>>, timestamps: bool) -> String {
 
 /// Add timestamps to each line of the given string content.
 fn add_timestamps_to_string(content: &str) -> String {
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     content
         .lines()
-        .map(|line| format!("[{}] {}", timestamp, line))
+        .map(|line| {
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            format!("[{}] {}", timestamp, line)
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
