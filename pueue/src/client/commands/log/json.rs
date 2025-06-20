@@ -3,6 +3,7 @@ use std::{
     io::Read,
 };
 
+use chrono::Local;
 use pueue_lib::{
     log::{get_log_file_handle, read_last_lines},
     message::TaskLogResponse,
@@ -28,6 +29,7 @@ pub fn print_log_json(
     task_log_messages: BTreeMap<usize, TaskLogResponse>,
     settings: &Settings,
     lines: Option<usize>,
+    timestamps: bool,
 ) {
     let mut tasks: BTreeMap<usize, Task> = BTreeMap::new();
     let mut task_log: BTreeMap<usize, String> = BTreeMap::new();
@@ -35,10 +37,10 @@ pub fn print_log_json(
         tasks.insert(id, message.task);
 
         if settings.client.read_local_logs {
-            let output = get_local_log(settings, id, lines);
+            let output = get_local_log(settings, id, lines, timestamps);
             task_log.insert(id, output);
         } else {
-            let output = get_remote_log(message.output);
+            let output = get_remote_log(message.output, timestamps);
             task_log.insert(id, output);
         }
     }
@@ -56,7 +58,7 @@ pub fn print_log_json(
 }
 
 /// Read logs directly from local files for a specific task.
-fn get_local_log(settings: &Settings, id: usize, lines: Option<usize>) -> String {
+fn get_local_log(settings: &Settings, id: usize, lines: Option<usize>, timestamps: bool) -> String {
     let mut file = match get_log_file_handle(id, &settings.shared.pueue_directory()) {
         Ok(file) => file,
         Err(err) => {
@@ -66,7 +68,11 @@ fn get_local_log(settings: &Settings, id: usize, lines: Option<usize>) -> String
 
     // Only return the last few lines.
     if let Some(lines) = lines {
-        return read_last_lines(&mut file, lines);
+        let content = read_last_lines(&mut file, lines);
+        if timestamps {
+            return add_timestamps_to_string(&content);
+        }
+        return content;
     }
 
     // Read the whole local log output.
@@ -75,12 +81,16 @@ fn get_local_log(settings: &Settings, id: usize, lines: Option<usize>) -> String
         return format!("(Pueue error) Failed to read local log output file: {error:?}");
     };
 
-    output
+    if timestamps {
+        add_timestamps_to_string(&output)
+    } else {
+        output
+    }
 }
 
 /// Read logs from from compressed remote logs.
 /// If logs don't exist, an empty string will be returned.
-fn get_remote_log(output_bytes: Option<Vec<u8>>) -> String {
+fn get_remote_log(output_bytes: Option<Vec<u8>>, timestamps: bool) -> String {
     let Some(bytes) = output_bytes else {
         return String::new();
     };
@@ -91,5 +101,19 @@ fn get_remote_log(output_bytes: Option<Vec<u8>>) -> String {
         return format!("(Pueue error) Failed to decompress remote log output: {error:?}");
     }
 
-    output
+    if timestamps {
+        add_timestamps_to_string(&output)
+    } else {
+        output
+    }
+}
+
+/// Add timestamps to each line of the given string content.
+fn add_timestamps_to_string(content: &str) -> String {
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    content
+        .lines()
+        .map(|line| format!("[{}] {}", timestamp, line))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -103,7 +103,7 @@ pub async fn add_task(
     }
 
     if follow {
-        follow_cmd(client, settings, style, Some(task_id), None).await?;
+        follow_cmd(client, settings, style, Some(task_id), None, false).await?;
     }
 
     Ok(())

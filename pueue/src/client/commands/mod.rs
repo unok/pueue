@@ -204,9 +204,11 @@ pub async fn handle_command(
             delay_until,
         } => enqueue(client, style, task_ids, group, all, delay_until).await,
         SubCommand::Env { cmd } => env(client, style, cmd).await,
-        SubCommand::Follow { task_id, lines } => {
-            follow(client, settings, style, task_id, lines).await
-        }
+        SubCommand::Follow {
+            task_id,
+            lines,
+            timestamps,
+        } => follow(client, settings, style, task_id, lines, timestamps).await,
         SubCommand::Group { cmd, json } => group(client, style, cmd, json).await,
         SubCommand::Kill {
             task_ids,
@@ -221,9 +223,10 @@ pub async fn handle_command(
             json,
             lines,
             full,
+            timestamps,
         } => {
             print_logs(
-                client, settings, style, task_ids, group, all, json, lines, full,
+                client, settings, style, task_ids, group, all, json, lines, full, timestamps,
             )
             .await
         }

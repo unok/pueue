@@ -3,6 +3,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::Local;
 use pueue_lib::{
     Client, Response, Settings,
     log::{get_log_file_handle, get_log_path, seek_to_last_lines},
@@ -29,16 +30,17 @@ pub async fn follow(
     style: &OutputStyle,
     task_id: Option<usize>,
     lines: Option<usize>,
+    timestamps: bool,
 ) -> Result<()> {
     // If we're supposed to read the log files from the local system, we don't have to
     // do any communication with the daemon.
     // Thereby we handle this in a separate function.
     if settings.client.read_local_logs {
-        local_follow(client, settings, task_id, lines).await?;
+        local_follow(client, settings, task_id, lines, timestamps).await?;
         return Ok(());
     }
 
-    remote_follow(client, style, task_id, lines).await
+    remote_follow(client, style, task_id, lines, timestamps).await
 }
 
 /// Request the daemon to stream log files for some tasks.
@@ -50,6 +52,7 @@ pub async fn remote_follow(
     style: &OutputStyle,
     task_id: Option<usize>,
     lines: Option<usize>,
+    timestamps: bool,
 ) -> Result<()> {
     let task_ids = task_id.map(|id| vec![id]).unwrap_or_default();
 
@@ -67,8 +70,20 @@ pub async fn remote_follow(
         match response {
             Response::Stream(response) => {
                 for (_, text) in response.logs {
-                    print!("{text}");
-                    io::stdout().flush().unwrap();
+                    if timestamps {
+                        // Split text into lines and add timestamp to each line
+                        for line in text.lines() {
+                            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                            println!("[{}] {}", timestamp, line);
+                        }
+                        // Handle the case where text doesn't end with a newline
+                        if !text.ends_with('\n') && !text.is_empty() {
+                            io::stdout().flush().unwrap();
+                        }
+                    } else {
+                        print!("{text}");
+                        io::stdout().flush().unwrap();
+                    }
                 }
                 continue;
             }
@@ -96,6 +111,7 @@ pub async fn local_follow(
     settings: Settings,
     task_id: Option<usize>,
     lines: Option<usize>,
+    timestamps: bool,
 ) -> Result<()> {
     let task_id = match task_id {
         Some(task_id) => task_id,
@@ -128,7 +144,7 @@ pub async fn local_follow(
         }
     };
 
-    follow_local_task_logs(client, settings, task_id, lines).await?;
+    follow_local_task_logs(client, settings, task_id, lines, timestamps).await?;
 
     Ok(())
 }
@@ -145,6 +161,7 @@ pub async fn follow_local_task_logs(
     settings: Settings,
     task_id: usize,
     lines: Option<usize>,
+    timestamps: bool,
 ) -> Result<()> {
     let pueue_directory = &settings.shared.pueue_directory();
     // It might be that the task is not yet running.
@@ -192,22 +209,67 @@ pub async fn follow_local_task_logs(
     // the daemon. That's why we only do it now and then.
     let task_check_interval = log_check_interval * 2;
     let mut last_check = 0;
+
+    // Store incomplete line buffer for timestamps mode
+    let mut incomplete_line = String::new();
+
     loop {
         // Check whether the file still exists. Exit if it doesn't.
         if !path.exists() {
             eprintln!("Pueue: Log file has gone away. Has the task been removed?");
             return Ok(());
         }
-        // Read the next chunk of text from the last position.
-        if let Err(err) = io::copy(&mut handle, &mut stdout) {
-            eprintln!("Pueue: Error while reading file: {err}");
-            return Ok(());
-        };
-        // Flush the stdout buffer to actually print the output.
-        if let Err(err) = stdout.flush() {
-            eprintln!("Pueue: Error while flushing stdout: {err}");
-            return Ok(());
-        };
+
+        // Read and output the next chunk of text
+        if timestamps {
+            // Read new data into a buffer
+            let mut buffer = Vec::new();
+            if let Err(err) = io::copy(&mut handle, &mut buffer) {
+                eprintln!("Pueue: Error while reading file: {err}");
+                return Ok(());
+            }
+
+            if !buffer.is_empty() {
+                // Convert to string and combine with any incomplete line from previous iteration
+                let new_text = String::from_utf8_lossy(&buffer);
+                let full_text = format!("{}{}", incomplete_line, new_text);
+
+                // Split into lines
+                let mut lines: Vec<&str> = full_text.lines().collect();
+
+                // Check if the text ends with a newline
+                let ends_with_newline = full_text.ends_with('\n');
+
+                // If it doesn't end with newline, the last line is incomplete
+                if !ends_with_newline && !lines.is_empty() {
+                    incomplete_line = lines.pop().unwrap().to_string();
+                } else {
+                    incomplete_line.clear();
+                }
+
+                // Print complete lines with timestamps
+                for line in lines {
+                    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                    println!("[{}] {}", timestamp, line);
+                }
+
+                if let Err(err) = stdout.flush() {
+                    eprintln!("Pueue: Error while flushing stdout: {err}");
+                    return Ok(());
+                }
+            }
+        } else {
+            // Original behavior - use io::copy
+            if let Err(err) = io::copy(&mut handle, &mut stdout) {
+                eprintln!("Pueue: Error while reading file: {err}");
+                return Ok(());
+            }
+            // Flush the stdout buffer to actually print the output.
+            if let Err(err) = stdout.flush() {
+                eprintln!("Pueue: Error while flushing stdout: {err}");
+                return Ok(());
+            }
+        }
 
         // Check every `task_check_interval` whether the task:
         // 1. Still exist
